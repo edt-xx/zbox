@@ -1,0 +1,282 @@
+const std = @import("std");
+const fs = std.fs;
+const os = std.os;
+const io = std.io;
+const mem = std.mem;
+const fmt = std.fmt;
+
+const assert = std.debug.assert;
+const ArrayList = std.ArrayList;
+
+usingnamespace @import("util.zig");
+
+//! the primitive terminal module is mainly responsible for providing a simple
+//! and portable interface to pseudo terminal IO and control primitives to
+//! higher level modules. You probably shouldn't be using this directly from
+//! application code.
+
+/// Input events
+pub const Event = union(enum) {
+    tick,
+    escape,
+    up,
+    down,
+    left,
+    right,
+    other: []const u8,
+};
+
+pub const InTty = fs.File.Reader;
+pub const OutTty = fs.File.Writer;
+
+/// write raw text to the terminal output buffer
+pub fn send(seq: []const u8) !void {
+    try out_buf.writer().writeAll(seq);
+}
+/// flush the terminal output buffer to the terminal
+pub fn flush() !void {
+    try out.writeAll(out_buf.items);
+    out_buf.items.len = 0;
+}
+/// clear the entire terminal
+pub fn clear() !void {
+    try sequence("2J");
+}
+
+/// provides size of screen as the bottom right most position that you can move
+/// your cursor to.
+const SizeT = struct { height: usize, width: usize };
+pub fn size() !SizeT {
+    var winsize = mem.zeroes(os.winsize);
+    _ = os.system.ioctl(in.context.handle, os.TIOCGWINSZ, @ptrToInt(&winsize));
+    return SizeT{ .height = winsize.ws_row, .width = winsize.ws_col };
+}
+
+/// Hides cursor if visible
+pub fn cursorHide() !void {
+    try sequence("?25l");
+}
+
+/// Shows cursor if hidden.
+pub fn cursorShow() !void {
+    try sequence("?25h");
+}
+
+/// warp the cursor to the specified `row` and `col` in the current scrolling
+/// region.
+pub fn cursorTo(row: usize, col: usize) !void {
+    assert(row > 0);
+    assert(col > 0);
+    try formatSequence("{};{}H", .{ row, col });
+}
+
+/// set up terminal for graphical operation
+pub fn setup(alloc: *mem.Allocator, inTty: InTty, outTty: OutTty) !void {
+    in_buf = try ArrayList(u8).initCapacity(alloc, 4096);
+    errdefer in_buf.deinit();
+    out_buf = try ArrayList(u8).initCapacity(alloc, 4096);
+    errdefer out_buf.deinit();
+
+    //TODO: check that we are actually dealing with a tty here
+    // and either downgrade or error
+    in = inTty;
+    out = outTty;
+
+    // store current terminal settings
+    // and setup the terminal for graphical IO
+    var termios: os.termios = undefined;
+    original_termios = try os.tcgetattr(in.context.handle);
+    termios = original_termios.?;
+
+    // termios flags for 'raw' mode.
+    termios.iflag &= ~@as(
+        os.tcflag_t,
+        os.IGNBRK | os.BRKINT | os.PARMRK | os.ISTRIP |
+        os.INLCR | os.IGNCR | os.ICRNL | os.IXON,
+    );
+    termios.lflag &= ~@as(
+        os.tcflag_t,
+        os.ICANON | os.ECHO | os.ECHONL | os.IEXTEN | os.ISIG,
+    );
+    termios.oflag &= ~@as(os.tcflag_t, os.OPOST);
+    termios.cflag &= ~@as(os.tcflag_t, os.CSIZE | os.PARENB);
+
+    termios.cflag |= os.CS8;
+
+    termios.cc[VMIN] = 0; // read can timeout before any data is actually written; async timer
+    termios.cc[VTIME] = 1; // 1/10th of a second
+
+    try os.tcsetattr(in.context.handle, .FLUSH, termios);
+    errdefer if (original_termios) |otermios| {
+        os.tcsetattr(in.context.handle, .FLUSH, otermios) catch {};
+    };
+
+    try enterAltScreen();
+    errdefer exitAltScreen() catch unreachable;
+
+    try truncMode();
+    try overwriteMode();
+    try keypadMode();
+    try cursorTo(1, 1);
+    try flush();
+}
+
+/// generate a terminal/job control signals with certain hotkeys
+/// Ctrl-C, Ctrl-Z, Ctrl-S, etc
+pub fn handleSignalInput() !void {
+    var termios = try os.tcgetattr(in.context.handle);
+
+    termios.lflag |= os.ISIG;
+
+    try os.tcsetattr(in.context.handle, .FLUSH, termios);
+}
+
+/// treat terminal/job control hotkeys as normal input
+/// Ctrl-C, Ctrl-Z, Ctrl-S, etc
+pub fn ignoreSignalInput() !void {
+    var termios = try os.tcgetattr(in.context.handle);
+
+    termios.lflag &= ~@as(os.tcflag_t, os.ISIG);
+
+    try os.tcsetattr(in.context.handle, .FLUSH, termios);
+}
+
+/// restore as much of the terminals's original state as possible
+pub fn teardown() void {
+    if (original_termios) |otermios| {
+        os.tcsetattr(in.context.handle, .FLUSH, otermios) catch {};
+    }
+
+    exitAltScreen() catch {};
+    flush() catch {};
+
+    in_buf.deinit();
+    out_buf.deinit();
+}
+
+/// read next message from the tty and parse it. takes
+/// special action for certain events
+pub fn nextEvent() !?Event {
+    const max_bytes = 4096;
+    var total_bytes: usize = 0;
+
+    while (true) {
+        try in_buf.resize(total_bytes + max_bytes);
+        const bytes_read = try in.context.read(in_buf.items[total_bytes .. max_bytes + total_bytes]);
+        total_bytes += bytes_read;
+
+        if (bytes_read < max_bytes) {
+            in_buf.items.len = total_bytes;
+            break;
+        }
+    }
+    const event = parseEvent();
+    debug("event: {}", .{event});
+    return event;
+}
+
+// internals ///////////////////////////////////////////////////////////////////
+var in: InTty = undefined;
+var out: OutTty = undefined;
+
+var in_buf: ArrayList(u8) = undefined;
+var out_buf: ArrayList(u8) = undefined;
+
+var original_termios: ?os.termios = null;
+
+fn parseEvent() ?Event {
+    const data = in_buf.items;
+    const eql = std.mem.eql;
+
+    if (data.len == 0) return Event.tick;
+
+    if (eql(u8, data, "\x1B"))
+        return Event.escape
+    else if (eql(u8, data, "\x1B[A") or eql(u8, data, "\x1BOA"))
+        return Event.up
+    else if (eql(u8, data, "\x1B[B") or eql(u8, data, "\x1BOB"))
+        return Event.down
+    else if (eql(u8, data, "\x1B[C") or eql(u8, data, "\x1BOC"))
+        return Event.right
+    else if (eql(u8, data, "\x1B[D") or eql(u8, data, "\x1BOD"))
+        return Event.left
+    else
+        return Event{ .other = data };
+}
+
+// terminal mode setting functions. ////////////////////////////////////////////
+
+/// sending text to the terminal at a specific offset overwrites preexisting text
+/// in this mode.
+fn overwriteMode() !void {
+    try sequence("4l");
+}
+
+/// sending text to the terminat at a specific offset pushes preexisting text to
+/// the right of the the line in this mode
+fn insertMode() !void {
+    try sequence("4h");
+}
+
+/// when the cursor, or text being moved by insertion reaches the last column on
+/// the terminal in this mode, it moves to the next like
+fn wrapMode() !void {
+    try sequence("?7h");
+}
+/// when the cursor reaches the last column on the terminal in this mode, it
+/// stops, and further writing changes the contents of the final column in place.
+/// when text being pushed by insertion reaches the final column, it is pushed
+/// out of the terminal buffer and lost.
+fn truncMode() !void {
+    try sequence("?7l");
+}
+
+/// not entirely sure what this does, but it is something about changing the
+/// sequences generated by certain types of input, and is usually called when
+/// initializing the terminal for 'non-cannonical' input.
+fn keypadMode() !void {
+    try sequence("?1h");
+    try send("\x1B=");
+}
+
+// saves the cursor and then sends a couple of version of the altscreen
+// sequence
+// this allows you to restore the contents of the display by calling
+// exitAltScreeen() later when the program is exiting.
+fn enterAltScreen() !void {
+    try sequence("s");
+    try sequence("?47h");
+    try sequence("?1049h");
+}
+
+// restores the cursor and then sends a couple version sof the exit_altscreen
+// sequence.
+fn exitAltScreen() !void {
+    try sequence("u");
+    try sequence("?47l");
+    try sequence("?1049l");
+}
+
+// escape sequence construction and printing ///////////////////////////////////
+const csi = "\x1B[";
+
+fn sequence(comptime seq: []const u8) !void {
+    try send(csi ++ seq);
+}
+
+fn format(comptime template: []const u8, args: anytype) !void {
+    try out_buf.writer().print(template, args);
+}
+fn formatSequence(comptime template: []const u8, args: anytype) !void {
+    try format(csi ++ template, args);
+}
+
+// TODO: these are not portable across architectures
+// they should be getting pulled in from c headers or
+// make it into linux/bits per architecture.
+const VTIME = 5;
+const VMIN = 6;
+
+test "static anal" {
+    std.meta.refAllDecls(@This());
+}
