@@ -43,6 +43,14 @@ pub fn clear() !void {
     try sequence("2J");
 }
 
+pub fn beginSync() !void {
+    try send("\x1BP=1s\x1B\\");
+}
+
+pub fn endSync() !void {
+    try send("\x1BP=2s\x1B\\");
+}
+
 /// provides size of screen as the bottom right most position that you can move
 /// your cursor to.
 const SizeT = struct { height: usize, width: usize };

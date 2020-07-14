@@ -45,6 +45,7 @@ pub fn push(buffer: Buffer) !void {
 
     try front.resize(size_.height, size_.width);
     var row: usize = 1;
+    //try prim.beginSync();
     while (row <= size_.height) : (row += 1) {
         var col: usize = 1;
         var last_touched: usize = 0; // out of bounds, can't match col
@@ -72,6 +73,7 @@ pub fn push(buffer: Buffer) !void {
             try prim.send(codepoint[0..len]);
         }
     }
+    //try prim.endSync();
 
     try prim.flush();
 }
