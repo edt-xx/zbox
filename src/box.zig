@@ -328,6 +328,14 @@ pub const Buffer = struct {
     }
 };
 
+const Size = struct {
+    height: usize,
+    width: usize,
+};
+/// represents the last drawn state of the terminal
+var front: Buffer = undefined;
+var last_size = Size{ .height = 0, .width = 0 };
+
 test "Buffer.resize()" {
     var buffer = try Buffer.init(std.testing.allocator, 10, 10);
     defer buffer.deinit();
@@ -352,14 +360,6 @@ test "Buffer.resize()" {
         std.testing.expectEqual(Cell{}, cell);
     }
 }
-
-const Size = struct {
-    height: usize,
-    width: usize,
-};
-/// represents the last drawn state of the terminal
-var front: Buffer = undefined;
-var last_size = Size{ .height = 0, .width = 0 };
 
 // most useful tests of this are function tests
 // see `examples/`
