@@ -21,6 +21,7 @@ usingnamespace @import("util.zig");
 pub fn init(allocator: *Allocator, in: prim.InTty, out: prim.OutTty) !void {
     front = try Buffer.init(allocator, 24, 80);
     errdefer front.deinit();
+
     try prim.setup(allocator, in, out);
 }
 
@@ -45,6 +46,7 @@ pub fn push(buffer: Buffer) !void {
 
     try front.resize(size_.height, size_.width);
     var row: usize = 1;
+
     //try prim.beginSync();
     while (row <= size_.height) : (row += 1) {
         var col: usize = 1;
@@ -107,9 +109,9 @@ pub const Buffer = struct {
     pub const WriteCursor = struct {
         row_num: usize,
         col_num: usize,
-        /// wr determines how to continue writing when the the text meets
+        /// wrap determines how to continue writing when the the text meets
         /// the last column in a row. In truncate mode, the text until the next newline
-        /// is dropped, in wrap mode, input is moved to the first column of the next row.
+        /// is dropped. In wrap mode, input is moved to the first column of the next row.
         wrap: bool = false,
 
         attribs: void = {}, // will eventually get filled in with color/display attributes
@@ -160,6 +162,7 @@ pub const Buffer = struct {
             .buffer = self,
         };
     }
+
     /// constructs a `WriteCursor` for the buffer at a given offset. data written
     /// through a wrapped cursor wraps around to the next line when it reaches the right
     /// edge of the row.
@@ -172,6 +175,7 @@ pub const Buffer = struct {
     pub fn clear(self: *Buffer) void {
         mem.set(Cell, self.data, .{});
     }
+
     pub fn init(allocator: *Allocator, height: usize, width: usize) !Buffer {
         var self = Buffer{
             .data = try allocator.alloc(Cell, width * height),
@@ -182,9 +186,11 @@ pub const Buffer = struct {
         self.clear();
         return self;
     }
+
     pub fn deinit(self: *Buffer) void {
         self.allocator.free(self.data);
     }
+
     /// return a slice representing a row at a given context. Generic over the constness
     /// of self; if the buffer is const, the slice elements are const.
     pub fn row(self: anytype, row_num: usize) RowType: {
@@ -204,6 +210,7 @@ pub const Buffer = struct {
     } {
         assert(row_num <= self.height);
         assert(row_num > 0);
+
         const row_idx = (row_num - 1) * self.width;
         return self.data[row_idx .. row_idx + self.width];
     }
@@ -229,6 +236,7 @@ pub const Buffer = struct {
         assert(col_num > 0);
         return &self.row(row_num)[col_num - 1];
     }
+
     /// return a copy of the cell at a given offset
     pub fn cell(self: Buffer, row_num: usize, col_num: usize) Cell {
         assert(col_num <= self.width);
@@ -313,17 +321,19 @@ pub const Buffer = struct {
         writer: anytype,
     ) !void {
         var row_num: usize = 1;
-
         try writer.print("\n\x1B[4m|", .{});
+
         while (row_num <= self.height) : (row_num += 1) {
             for (self.row(row_num)) |this_cell| {
                 var utf8Seq: [4]u8 = undefined;
                 const len = std.unicode.utf8Encode(this_cell.char, &utf8Seq) catch unreachable;
                 try writer.print("{}|", .{utf8Seq[0..len]});
             }
+
             if (row_num != self.height)
                 try writer.print("\n|", .{});
         }
+
         try writer.print("\x1B[0m\n", .{});
     }
 };
@@ -336,6 +346,8 @@ const Size = struct {
 var front: Buffer = undefined;
 var last_size = Size{ .height = 0, .width = 0 };
 
+// tests ///////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 test "Buffer.resize()" {
     var buffer = try Buffer.init(std.testing.allocator, 10, 10);
     defer buffer.deinit();
