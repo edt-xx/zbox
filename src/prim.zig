@@ -26,6 +26,62 @@ pub const Event = union(enum) {
     other: []const u8,
 };
 
+pub const SGR = packed struct {
+    bold: bool = false,
+    underline: bool = false,
+    reverse: bool = false,
+    fg_black: bool = false,
+    bg_black: bool = false,
+    fg_red: bool = false,
+    bg_red: bool = false,
+    fg_green: bool = false,
+    bg_green: bool = false,
+    fg_yellow: bool = false,
+    bg_yellow: bool = false,
+    fg_blue: bool = false,
+    bg_blue: bool = false,
+    fg_magenta: bool = false,
+    bg_magenta: bool = false,
+    fg_cyan: bool = false,
+    bg_cyan: bool = false,
+    fg_white: bool = false,
+    bg_white: bool = false,
+
+    // not
+    pub fn invert(self: SGR) SGR {
+        var other = SGR{};
+        inline for (@typeInfo(SGR).Struct.fields) |field| {
+            @field(other, field.name) = !@field(self, field.name);
+        }
+        return other;
+    }
+    // and
+    pub fn intersect(self: SGR, other: SGR) SGR {
+        var new = SGR{};
+        inline for (@typeInfo(SGR).Struct.fields) |field| {
+            @field(new, field.name) =
+                @field(self, field.name) and @field(other, field.name);
+        }
+        return new;
+    }
+    // or
+    pub fn unify(self: SGR, other: SGR) SGR {
+        var new = SGR{};
+        inline for (@typeInfo(SGR).Struct.fields) |field| {
+            @field(new, field.name) =
+                @field(self, field.name) or @field(other, field.name);
+        }
+        return new;
+    }
+    pub fn eql(self: SGR, other: SGR) bool {
+        inline for (@typeInfo(SGR).Struct.fields) |field| {
+            if (!(@field(self, field.name) == @field(other, field.name)))
+                return false;
+        }
+        return true;
+    }
+};
+
 pub const InTty = fs.File.Reader;
 pub const OutTty = fs.File.Writer;
 
@@ -33,6 +89,31 @@ pub const OutTty = fs.File.Writer;
 pub fn send(seq: []const u8) !void {
     try out_buf.writer().writeAll(seq);
 }
+
+pub fn sendSGR(sgr: SGR) !void {
+    try send(csi ++ "0"); // always clear
+    if (sgr.bold) try send(";1");
+    if (sgr.underline) try send(";4");
+    if (sgr.reverse) try send(";7");
+    if (sgr.fg_black) try send(";30");
+    if (sgr.bg_black) try send(";40");
+    if (sgr.fg_red) try send(";31");
+    if (sgr.bg_red) try send(";41");
+    if (sgr.fg_green) try send(";32");
+    if (sgr.bg_green) try send(";42");
+    if (sgr.fg_yellow) try send(";33");
+    if (sgr.bg_yellow) try send(";43");
+    if (sgr.fg_blue) try send(";34");
+    if (sgr.bg_blue) try send(";44");
+    if (sgr.fg_magenta) try send(";35");
+    if (sgr.bg_magenta) try send(";45");
+    if (sgr.fg_cyan) try send(";36");
+    if (sgr.bg_cyan) try send(";46");
+    if (sgr.fg_white) try send(";37");
+    if (sgr.bg_white) try send(";74");
+    try send("m");
+}
+
 /// flush the terminal output buffer to the terminal
 pub fn flush() !void {
     try out.writeAll(out_buf.items);
@@ -287,4 +368,6 @@ const VMIN = 6;
 
 test "static anal" {
     std.meta.refAllDecls(@This());
+    std.meta.refAllDecls(Event);
+    std.meta.refAllDecls(SGR);
 }

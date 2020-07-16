@@ -72,6 +72,7 @@ pub fn push(buffer: Buffer) !void {
             var codepoint: [4]u8 = undefined;
             const len = try std.unicode.utf8Encode(cell.char, &codepoint);
 
+            try prim.sendSGR(cell.attribs);
             try prim.send(codepoint[0..len]);
         }
     }
@@ -80,12 +81,12 @@ pub fn push(buffer: Buffer) !void {
     try prim.flush();
 }
 
-//TODO: attributes? Color?
 /// structure that represents a single textual character on screen
 pub const Cell = struct {
     char: u21 = ' ',
+    attribs: prim.SGR = prim.SGR{},
     fn eql(self: Cell, other: Cell) bool {
-        return self.char == other.char;
+        return self.char == other.char and self.attribs.eql(other.attribs);
     }
 };
 
@@ -114,7 +115,7 @@ pub const Buffer = struct {
         /// is dropped. In wrap mode, input is moved to the first column of the next row.
         wrap: bool = false,
 
-        attribs: void = {}, // will eventually get filled in with color/display attributes
+        attribs: prim.SGR = prim.SGR{},
         buffer: *Buffer,
 
         const Error = error{ InvalidUtf8, InvalidCharacter };
@@ -140,7 +141,10 @@ pub const Buffer = struct {
                     },
                     else => {
                         if (self.col_num <= self.buffer.width)
-                            self.buffer.cellRef(self.row_num, self.col_num).*.char = cp;
+                            self.buffer.cellRef(self.row_num, self.col_num).* = .{
+                                .char = cp,
+                                .attribs = self.attribs,
+                            };
                         self.col_num += 1;
                     },
                 }

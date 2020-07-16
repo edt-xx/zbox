@@ -141,7 +141,10 @@ pub fn main() !void {
                     }
                 }
 
-                game_display.cellRef(row_num, col_num).char = bad_char;
+                game_display.cellRef(row_num, col_num).* = .{
+                    .char = bad_char,
+                    .attribs = .{ .fg_magenta = true },
+                };
                 baddie_count += 1;
             }
         };
@@ -153,9 +156,15 @@ pub fn main() !void {
         }
 
         for (bullets) |bullet| {
-            if (bullet.y > 0) game_display.cellRef(bullet.y, bullet.x).char = bullet_char;
+            if (bullet.y > 0)
+                game_display.cellRef(bullet.y, bullet.x).* = .{
+                    .char = bullet_char,
+                    .attribs = .{ .fg_yellow = true },
+                };
         }
         var score_curs = game_display.cursorAt(1, 4);
+        score_curs.attribs = .{ .underline = true };
+
         try score_curs.writer().print("{:0>4}", .{score});
 
         const game_row = if (size.height >= height + 2)
