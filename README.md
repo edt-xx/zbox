@@ -28,7 +28,6 @@ hotkey modifiers differently. I hope to eventually support Ctrl as a modifier
 portably and consistently, but currently do not. Mouse input will probably 
 never be supported.
 Parsing most input is currently the responsibility of the user.
-* Currently no style or color support implemented, but this is planned.
 * event handling should be compatible with zig's async IO. As such, this
 intentionally avoids poll/signal handlers, and so `sigwinch` (terminal window
 resize signal) is not used for window resizing.
