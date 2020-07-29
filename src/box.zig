@@ -3,43 +3,52 @@ const mem = std.mem;
 const math = std.math;
 const assert = std.debug.assert;
 const Allocator = mem.Allocator;
-const prim = @import("prim.zig");
+const term = @import("prim.zig");
 
 // promote some primitive ops
-pub const size = prim.size;
-pub const ignoreSignalInput = prim.ignoreSignalInput;
-pub const handleSignalInput = prim.handleSignalInput;
-pub const cursorShow = prim.cursorShow;
-pub const cursorHide = prim.cursorHide;
-pub const nextEvent = prim.nextEvent;
-pub const clear = prim.clear;
-pub const Event = prim.Event;
+pub const size = term.size;
+pub const ignoreSignalInput = term.ignoreSignalInput;
+pub const handleSignalInput = term.handleSignalInput;
+pub const cursorShow = term.cursorShow;
+pub const cursorHide = term.cursorHide;
+pub const nextEvent = term.nextEvent;
+pub const clear = term.clear;
+pub const Event = term.Event;
+
+pub const ErrorSet = struct {
+    pub const Term = term.ErrorSet;
+    pub const Write = Term.Write || std.os.WriteError;
+    pub const Utf8Encode = error{
+        Utf8CannotEncodeSurrogateHalf,
+        CodepointTooLarge,
+    };
+};
 
 usingnamespace @import("util.zig");
 
 /// must be called before any buffers are `push`ed to the terminal.
-pub fn init(allocator: *Allocator, in: prim.InTty, out: prim.OutTty) !void {
+pub fn init(allocator: *Allocator, in: term.InTty, out: term.OutTty) ErrorSet.Term.Setup!void {
     front = try Buffer.init(allocator, 24, 80);
     errdefer front.deinit();
 
-    try prim.setup(allocator, in, out);
+    try term.setup(allocator, in, out);
 }
 
 /// should be called prior to program exit
 pub fn deinit() void {
     front.deinit();
-    prim.teardown();
+    term.teardown();
 }
 
 /// compare state of input buffer to a buffer tracking display state
 /// and send changes to the terminal.
-pub fn push(buffer: Buffer) !void {
+pub fn push(buffer: Buffer) (Allocator.Error || ErrorSet.Utf8Encode || ErrorSet.Write)!void {
     const size_ = Size{ .height = buffer.height, .width = buffer.width };
 
     // resizing the front buffer naively can lead to artifacting
     // if we do not clear the terminal here.
     if (!std.meta.eql(size_, last_size)) {
-        try prim.clear();
+        try term.clear();
         front.clear();
     }
     last_size = size_;
@@ -47,7 +56,7 @@ pub fn push(buffer: Buffer) !void {
     try front.resize(size_.height, size_.width);
     var row: usize = 1;
 
-    //try prim.beginSync();
+    //try term.beginSync();
     while (row <= size_.height) : (row += 1) {
         var col: usize = 1;
         var last_touched: usize = 0; // out of bounds, can't match col
@@ -62,7 +71,7 @@ pub fn push(buffer: Buffer) !void {
             // only send cursor movement sequence if the last modified
             // cell was not the immediately previous cell in this row
             if (last_touched != col)
-                try prim.cursorTo(row, col);
+                try term.cursorTo(row, col);
 
             last_touched = col;
 
@@ -72,19 +81,19 @@ pub fn push(buffer: Buffer) !void {
             var codepoint: [4]u8 = undefined;
             const len = try std.unicode.utf8Encode(cell.char, &codepoint);
 
-            try prim.sendSGR(cell.attribs);
-            try prim.send(codepoint[0..len]);
+            try term.sendSGR(cell.attribs);
+            try term.send(codepoint[0..len]);
         }
     }
-    //try prim.endSync();
+    //try term.endSync();
 
-    try prim.flush();
+    try term.flush();
 }
 
 /// structure that represents a single textual character on screen
 pub const Cell = struct {
     char: u21 = ' ',
-    attribs: prim.SGR = prim.SGR{},
+    attribs: term.SGR = term.SGR{},
     fn eql(self: Cell, other: Cell) bool {
         return self.char == other.char and self.attribs.eql(other.attribs);
     }
@@ -115,7 +124,7 @@ pub const Buffer = struct {
         /// is dropped. In wrap mode, input is moved to the first column of the next row.
         wrap: bool = false,
 
-        attribs: prim.SGR = prim.SGR{},
+        attribs: term.SGR = term.SGR{},
         buffer: *Buffer,
 
         const Error = error{ InvalidUtf8, InvalidCharacter };
@@ -180,7 +189,7 @@ pub const Buffer = struct {
         mem.set(Cell, self.data, .{});
     }
 
-    pub fn init(allocator: *Allocator, height: usize, width: usize) !Buffer {
+    pub fn init(allocator: *Allocator, height: usize, width: usize) Allocator.Error!Buffer {
         var self = Buffer{
             .data = try allocator.alloc(Cell, width * height),
             .width = width,
@@ -256,7 +265,7 @@ pub const Buffer = struct {
     /// grows or shrinks a cell buffer ensuring alignment by line and column
     /// data is lost in shrunk dimensions, and new space is initialized
     /// as the default cell in grown dimensions.
-    pub fn resize(self: *Buffer, height: usize, width: usize) !void {
+    pub fn resize(self: *Buffer, height: usize, width: usize) Allocator.Error!void {
         if (self.height == height and self.width == width) return;
         //TODO: figure out more ways to minimize unnecessary reallocation and
         //redrawing here. for instance:
@@ -323,7 +332,7 @@ pub const Buffer = struct {
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
         writer: anytype,
-    ) !void {
+    ) @TypeOf(writer).Error!void {
         var row_num: usize = 1;
         try writer.print("\n\x1B[4m|", .{});
 

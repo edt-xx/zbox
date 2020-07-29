@@ -7,6 +7,7 @@ const fmt = std.fmt;
 
 const assert = std.debug.assert;
 const ArrayList = std.ArrayList;
+const Allocator = mem.Allocator;
 
 usingnamespace @import("util.zig");
 
@@ -85,12 +86,22 @@ pub const SGR = packed struct {
 pub const InTty = fs.File.Reader;
 pub const OutTty = fs.File.Writer;
 
+pub const ErrorSet = struct {
+    pub const BufWrite = ArrayList(u8).Writer.Error;
+    pub const TtyWrite = OutTty.Error;
+    pub const TtyRead = InTty.Error;
+    pub const Write = ErrorSet.BufWrite || ErrorSet.TtyWrite;
+    pub const Read = ErrorSet.TtyRead;
+    pub const Termios = std.os.TermiosGetError || std.os.TermiosSetError;
+    pub const Setup = Allocator.Error || ErrorSet.Termios || ErrorSet.TtyWrite;
+};
+
 /// write raw text to the terminal output buffer
-pub fn send(seq: []const u8) !void {
+pub fn send(seq: []const u8) ErrorSet.BufWrite!void {
     try out_buf.writer().writeAll(seq);
 }
 
-pub fn sendSGR(sgr: SGR) !void {
+pub fn sendSGR(sgr: SGR) ErrorSet.BufWrite!void {
     try send(csi ++ "0"); // always clear
     if (sgr.bold) try send(";1");
     if (sgr.underline) try send(";4");
@@ -115,52 +126,54 @@ pub fn sendSGR(sgr: SGR) !void {
 }
 
 /// flush the terminal output buffer to the terminal
-pub fn flush() !void {
+pub fn flush() ErrorSet.TtyWrite!void {
     try out.writeAll(out_buf.items);
     out_buf.items.len = 0;
 }
 /// clear the entire terminal
-pub fn clear() !void {
+pub fn clear() ErrorSet.BufWrite!void {
     try sequence("2J");
 }
 
-pub fn beginSync() !void {
+pub fn beginSync() ErrorSet.BufWrite!void {
     try send("\x1BP=1s\x1B\\");
 }
 
-pub fn endSync() !void {
+pub fn endSync() ErrorSet.BufWrite!void {
     try send("\x1BP=2s\x1B\\");
 }
 
 /// provides size of screen as the bottom right most position that you can move
 /// your cursor to.
-const SizeT = struct { height: usize, width: usize };
-pub fn size() !SizeT {
+const TermSize = struct { height: usize, width: usize };
+pub fn size() os.UnexpectedError!TermSize {
     var winsize = mem.zeroes(os.winsize);
-    _ = os.system.ioctl(in.context.handle, os.TIOCGWINSZ, @ptrToInt(&winsize));
-    return SizeT{ .height = winsize.ws_row, .width = winsize.ws_col };
+    const err = os.system.ioctl(in.context.handle, os.TIOCGWINSZ, @ptrToInt(&winsize));
+    if (os.errno(err) == 0)
+        return TermSize{ .height = winsize.ws_row, .width = winsize.ws_col };
+    return os.unexpectedErrno(err);
 }
 
 /// Hides cursor if visible
-pub fn cursorHide() !void {
+pub fn cursorHide() ErrorSet.BufWrite!void {
     try sequence("?25l");
 }
 
 /// Shows cursor if hidden.
-pub fn cursorShow() !void {
+pub fn cursorShow() ErrorSet.BufWrite!void {
     try sequence("?25h");
 }
 
 /// warp the cursor to the specified `row` and `col` in the current scrolling
 /// region.
-pub fn cursorTo(row: usize, col: usize) !void {
+pub fn cursorTo(row: usize, col: usize) ErrorSet.BufWrite!void {
     assert(row > 0);
     assert(col > 0);
     try formatSequence("{};{}H", .{ row, col });
 }
 
 /// set up terminal for graphical operation
-pub fn setup(alloc: *mem.Allocator, inTty: InTty, outTty: OutTty) !void {
+pub fn setup(alloc: *Allocator, inTty: InTty, outTty: OutTty) ErrorSet.Setup!void {
     in_buf = try ArrayList(u8).initCapacity(alloc, 4096);
     errdefer in_buf.deinit();
     out_buf = try ArrayList(u8).initCapacity(alloc, 4096);
@@ -212,7 +225,7 @@ pub fn setup(alloc: *mem.Allocator, inTty: InTty, outTty: OutTty) !void {
 
 /// generate a terminal/job control signals with certain hotkeys
 /// Ctrl-C, Ctrl-Z, Ctrl-S, etc
-pub fn handleSignalInput() !void {
+pub fn handleSignalInput() ErrorSet.Termios!void {
     var termios = try os.tcgetattr(in.context.handle);
 
     termios.lflag |= os.ISIG;
@@ -222,7 +235,7 @@ pub fn handleSignalInput() !void {
 
 /// treat terminal/job control hotkeys as normal input
 /// Ctrl-C, Ctrl-Z, Ctrl-S, etc
-pub fn ignoreSignalInput() !void {
+pub fn ignoreSignalInput() ErrorSet.Termios!void {
     var termios = try os.tcgetattr(in.context.handle);
 
     termios.lflag &= ~@as(os.tcflag_t, os.ISIG);
@@ -245,7 +258,7 @@ pub fn teardown() void {
 
 /// read next message from the tty and parse it. takes
 /// special action for certain events
-pub fn nextEvent() !?Event {
+pub fn nextEvent() (Allocator.Error || ErrorSet.TtyRead)!?Event {
     const max_bytes = 4096;
     var total_bytes: usize = 0;
 
@@ -297,33 +310,33 @@ fn parseEvent() ?Event {
 
 /// sending text to the terminal at a specific offset overwrites preexisting text
 /// in this mode.
-fn overwriteMode() !void {
+fn overwriteMode() ErrorSet.BufWrite!void {
     try sequence("4l");
 }
 
 /// sending text to the terminat at a specific offset pushes preexisting text to
 /// the right of the the line in this mode
-fn insertMode() !void {
+fn insertMode() ErrorSet.BufWrite!void {
     try sequence("4h");
 }
 
 /// when the cursor, or text being moved by insertion reaches the last column on
 /// the terminal in this mode, it moves to the next like
-fn wrapMode() !void {
+fn wrapMode() ErrorSet.BufWrite!void {
     try sequence("?7h");
 }
 /// when the cursor reaches the last column on the terminal in this mode, it
 /// stops, and further writing changes the contents of the final column in place.
 /// when text being pushed by insertion reaches the final column, it is pushed
 /// out of the terminal buffer and lost.
-fn truncMode() !void {
+fn truncMode() ErrorSet.BufWrite!void {
     try sequence("?7l");
 }
 
 /// not entirely sure what this does, but it is something about changing the
 /// sequences generated by certain types of input, and is usually called when
 /// initializing the terminal for 'non-cannonical' input.
-fn keypadMode() !void {
+fn keypadMode() ErrorSet.BufWrite!void {
     try sequence("?1h");
     try send("\x1B=");
 }
@@ -332,7 +345,7 @@ fn keypadMode() !void {
 // sequence
 // this allows you to restore the contents of the display by calling
 // exitAltScreeen() later when the program is exiting.
-fn enterAltScreen() !void {
+fn enterAltScreen() ErrorSet.BufWrite!void {
     try sequence("s");
     try sequence("?47h");
     try sequence("?1049h");
@@ -340,7 +353,7 @@ fn enterAltScreen() !void {
 
 // restores the cursor and then sends a couple version sof the exit_altscreen
 // sequence.
-fn exitAltScreen() !void {
+fn exitAltScreen() ErrorSet.BufWrite!void {
     try sequence("u");
     try sequence("?47l");
     try sequence("?1049l");
@@ -349,14 +362,14 @@ fn exitAltScreen() !void {
 // escape sequence construction and printing ///////////////////////////////////
 const csi = "\x1B[";
 
-fn sequence(comptime seq: []const u8) !void {
+fn sequence(comptime seq: []const u8) ErrorSet.BufWrite!void {
     try send(csi ++ seq);
 }
 
-fn format(comptime template: []const u8, args: anytype) !void {
+fn format(comptime template: []const u8, args: anytype) ErrorSet.BufWrite!void {
     try out_buf.writer().print(template, args);
 }
-fn formatSequence(comptime template: []const u8, args: anytype) !void {
+fn formatSequence(comptime template: []const u8, args: anytype) ErrorSet.BufWrite!void {
     try format(csi ++ template, args);
 }
 
