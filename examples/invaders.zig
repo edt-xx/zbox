@@ -48,11 +48,7 @@ pub fn main() !void {
     var alloc = &arena.allocator;
 
     // initialize the display with stdin/out
-    try display.init(
-        alloc,
-        std.io.getStdIn().reader(),
-        std.io.getStdOut().writer(),
-    );
+    try display.init(alloc);
     defer display.deinit();
 
     // ignore ctrl+C

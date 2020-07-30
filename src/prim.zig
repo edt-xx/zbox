@@ -93,7 +93,7 @@ pub const ErrorSet = struct {
     pub const Write = ErrorSet.BufWrite || ErrorSet.TtyWrite;
     pub const Read = ErrorSet.TtyRead;
     pub const Termios = std.os.TermiosGetError || std.os.TermiosSetError;
-    pub const Setup = Allocator.Error || ErrorSet.Termios || ErrorSet.TtyWrite;
+    pub const Setup = Allocator.Error || ErrorSet.Termios || ErrorSet.TtyWrite || fs.File.OpenError;
 };
 
 /// write raw text to the terminal output buffer
@@ -173,7 +173,7 @@ pub fn cursorTo(row: usize, col: usize) ErrorSet.BufWrite!void {
 }
 
 /// set up terminal for graphical operation
-pub fn setup(alloc: *Allocator, inTty: InTty, outTty: OutTty) ErrorSet.Setup!void {
+pub fn setup(alloc: *Allocator) ErrorSet.Setup!void {
     in_buf = try ArrayList(u8).initCapacity(alloc, 4096);
     errdefer in_buf.deinit();
     out_buf = try ArrayList(u8).initCapacity(alloc, 4096);
@@ -181,8 +181,10 @@ pub fn setup(alloc: *Allocator, inTty: InTty, outTty: OutTty) ErrorSet.Setup!voi
 
     //TODO: check that we are actually dealing with a tty here
     // and either downgrade or error
-    in = inTty;
-    out = outTty;
+    in = (try fs.cwd().openFile("/dev/tty", .{ .read = true, .write = false })).reader();
+    errdefer in.context.close();
+    out = (try fs.cwd().openFile("/dev/tty", .{ .read = false, .write = true })).writer();
+    errdefer out.context.close();
 
     // store current terminal settings
     // and setup the terminal for graphical IO
@@ -251,7 +253,8 @@ pub fn teardown() void {
 
     exitAltScreen() catch {};
     flush() catch {};
-
+    in.context.close();
+    out.context.close();
     in_buf.deinit();
     out_buf.deinit();
 }

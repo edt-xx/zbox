@@ -27,11 +27,11 @@ pub const ErrorSet = struct {
 usingnamespace @import("util.zig");
 
 /// must be called before any buffers are `push`ed to the terminal.
-pub fn init(allocator: *Allocator, in: term.InTty, out: term.OutTty) ErrorSet.Term.Setup!void {
+pub fn init(allocator: *Allocator) ErrorSet.Term.Setup!void {
     front = try Buffer.init(allocator, 24, 80);
     errdefer front.deinit();
 
-    try term.setup(allocator, in, out);
+    try term.setup(allocator);
 }
 
 /// should be called prior to program exit
