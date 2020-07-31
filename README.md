@@ -89,6 +89,11 @@ zbox.push(Buffer)
 ```
 #### Cell buffers
 
+Cell buffers are an off-screen abstraction of the terminal. Rather than directly sending operations to the
+system's terminal, you create, operate on, and compose cell buffers. The library itself also maintains its own
+internal cell buffer so it knows what was drawn to the screen on the last 'push'. This is so that on the next push,
+it can compare it to the last state and only generate drawing operations for the parts that have changed.
+
 ```zig
 // allocate an initialize a new cell buffer with the given dimensions.
 // the default cell this uses for initialization is a space character with no ANSI style attributes.
