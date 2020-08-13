@@ -225,7 +225,6 @@ pub fn setup(alloc: *Allocator) ErrorSet.Setup!void {
     try keypadMode();
     try cursorTo(1, 1);
     try flush();
-    
 }
 
 /// generate a terminal/job control signals with certain hotkeys
@@ -252,7 +251,6 @@ pub fn ignoreSignalInput() ErrorSet.Termios!void {
 
 /// restore as much of the terminals's original state as possible
 pub fn teardown() void {
-    
     if (original_termios) |otermios| {
         os.tcsetattr(in.context.handle, .FLUSH, otermios) catch {};
     }
@@ -292,13 +290,9 @@ pub fn nextEvent() (Allocator.Error || ErrorSet.TtyRead)!?Event {
 var initialized: bool = false;
 
 fn ensureInit(caller: usize) void {
-    switch (std.builtin.mode) {
-        .Debug,.ReleaseSafe => if (!initialized) std.debug.panicExtra(
-            null,
-            caller,
-            "Tried to use uninitialized terminal",
-            .{}),
-            else => return,
+    if (std.debug.runtime_safety) {
+        if (!initialized)
+            std.debug.panicExtra(null, caller, "Tried to use uninitialized terminal", .{});
     }
 }
 
