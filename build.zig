@@ -7,6 +7,7 @@ pub fn build(b: *Builder) void {
 
     const dvd = b.addExecutable("dvd", "examples/dvd.zig");
     const invaders = b.addExecutable("invaders", "examples/invaders.zig");
+    const tests = b.addTest("src/box.zig");
 
     const example_log = b.fmt("\"{}/{}/{}\"", .{ b.build_root, b.cache_root, "example_log" });
     dvd.setTarget(target);
@@ -21,6 +22,9 @@ pub fn build(b: *Builder) void {
     invaders.addBuildOption([]const u8, "log_path", example_log);
     invaders.install();
 
+    tests.setTarget(target);
+    tests.setBuildMode(mode);
+
     const dvd_cmd = dvd.run();
     dvd_cmd.step.dependOn(b.getInstallStep());
 
@@ -32,4 +36,7 @@ pub fn build(b: *Builder) void {
 
     const invaders_step = b.step("invaders", "console space invaders");
     invaders_step.dependOn(&invaders_cmd.step);
+
+    const test_step = b.step("test", "run package's test suite");
+    test_step.dependOn(&tests.step);
 }
