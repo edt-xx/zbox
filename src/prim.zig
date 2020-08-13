@@ -98,6 +98,7 @@ pub const ErrorSet = struct {
 
 /// write raw text to the terminal output buffer
 pub fn send(seq: []const u8) ErrorSet.BufWrite!void {
+    ensureInit(@returnAddress());
     try out_buf.writer().writeAll(seq);
 }
 
@@ -147,6 +148,7 @@ pub fn endSync() ErrorSet.BufWrite!void {
 /// your cursor to.
 const TermSize = struct { height: usize, width: usize };
 pub fn size() os.UnexpectedError!TermSize {
+    ensureInit(@returnAddress());
     var winsize = mem.zeroes(os.winsize);
     const err = os.system.ioctl(in.context.handle, os.TIOCGWINSZ, @ptrToInt(&winsize));
     if (os.errno(err) == 0)
@@ -214,7 +216,7 @@ pub fn setup(alloc: *Allocator) ErrorSet.Setup!void {
     errdefer if (original_termios) |otermios| {
         os.tcsetattr(in.context.handle, .FLUSH, otermios) catch {};
     };
-
+    initialized = true;
     try enterAltScreen();
     errdefer exitAltScreen() catch unreachable;
 
@@ -223,11 +225,13 @@ pub fn setup(alloc: *Allocator) ErrorSet.Setup!void {
     try keypadMode();
     try cursorTo(1, 1);
     try flush();
+    
 }
 
 /// generate a terminal/job control signals with certain hotkeys
 /// Ctrl-C, Ctrl-Z, Ctrl-S, etc
 pub fn handleSignalInput() ErrorSet.Termios!void {
+    ensureInit(@returnAddress());
     var termios = try os.tcgetattr(in.context.handle);
 
     termios.lflag |= os.ISIG;
@@ -238,6 +242,7 @@ pub fn handleSignalInput() ErrorSet.Termios!void {
 /// treat terminal/job control hotkeys as normal input
 /// Ctrl-C, Ctrl-Z, Ctrl-S, etc
 pub fn ignoreSignalInput() ErrorSet.Termios!void {
+    ensureInit(@returnAddress());
     var termios = try os.tcgetattr(in.context.handle);
 
     termios.lflag &= ~@as(os.tcflag_t, os.ISIG);
@@ -247,12 +252,14 @@ pub fn ignoreSignalInput() ErrorSet.Termios!void {
 
 /// restore as much of the terminals's original state as possible
 pub fn teardown() void {
+    
     if (original_termios) |otermios| {
         os.tcsetattr(in.context.handle, .FLUSH, otermios) catch {};
     }
 
     exitAltScreen() catch {};
     flush() catch {};
+    initialized = false;
     in.context.close();
     out.context.close();
     in_buf.deinit();
@@ -262,6 +269,7 @@ pub fn teardown() void {
 /// read next message from the tty and parse it. takes
 /// special action for certain events
 pub fn nextEvent() (Allocator.Error || ErrorSet.TtyRead)!?Event {
+    ensureInit(@returnAddress());
     const max_bytes = 4096;
     var total_bytes: usize = 0;
 
@@ -281,6 +289,19 @@ pub fn nextEvent() (Allocator.Error || ErrorSet.TtyRead)!?Event {
 }
 
 // internals ///////////////////////////////////////////////////////////////////
+var initialized: bool = false;
+
+fn ensureInit(caller: usize) void {
+    switch (std.builtin.mode) {
+        .Debug,.ReleaseSafe => if (!initialized) std.debug.panicExtra(
+            null,
+            caller,
+            "Tried to use uninitialized terminal",
+            .{}),
+            else => return,
+    }
+}
+
 var in: InTty = undefined;
 var out: OutTty = undefined;
 
@@ -370,6 +391,7 @@ fn sequence(comptime seq: []const u8) ErrorSet.BufWrite!void {
 }
 
 fn format(comptime template: []const u8, args: anytype) ErrorSet.BufWrite!void {
+    ensureInit(@returnAddress());
     try out_buf.writer().print(template, args);
 }
 fn formatSequence(comptime template: []const u8, args: anytype) ErrorSet.BufWrite!void {
