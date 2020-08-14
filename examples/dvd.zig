@@ -1,7 +1,6 @@
 const std = @import("std");
 const display = @import("zbox");
 const options = @import("build_options");
-const ArenaAllocator = std.heap.ArenaAllocator;
 const page_allocator = std.heap.page_allocator;
 
 pub usingnamespace @import("log_handler.zig");
@@ -18,9 +17,7 @@ const dvd_text: []const u8 =
     \\ ##########
 ;
 pub fn main() !void {
-    var arena = ArenaAllocator.init(page_allocator);
-    defer arena.deinit();
-    var alloc = &arena.allocator;
+    var alloc = page_allocator;
 
     // initialize the display with stdin/out
     try display.init(alloc);
