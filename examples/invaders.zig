@@ -1,7 +1,6 @@
 const std = @import("std");
 const display = @import("zbox");
 const options = @import("build_options");
-const ArenaAllocator = std.heap.ArenaAllocator;
 const page_allocator = std.heap.page_allocator;
 const ArrayList = std.ArrayList;
 
@@ -43,9 +42,7 @@ var state: enum {
 } = .playing;
 
 pub fn main() !void {
-    var arena = ArenaAllocator.init(page_allocator);
-    defer arena.deinit();
-    var alloc = &arena.allocator;
+    var alloc = std.heap.page_allocator;
 
     // initialize the display with stdin/out
     try display.init(alloc);
@@ -57,7 +54,10 @@ pub fn main() !void {
     defer display.cursorShow() catch {};
 
     var game_display = try display.Buffer.init(alloc, height, width);
+    defer game_display.deinit();
+
     var output = try display.Buffer.init(alloc, height, width);
+    defer output.deinit();
 
     while (try display.nextEvent()) |e| {
         const size = try display.size();
