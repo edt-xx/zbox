@@ -176,6 +176,7 @@ pub fn cursorTo(row: usize, col: usize) ErrorSet.BufWrite!void {
 
 /// set up terminal for graphical operation
 pub fn setup(alloc: *Allocator) ErrorSet.Setup!void {
+    errdefer initialized = false;
     in_buf = try ArrayList(u8).initCapacity(alloc, 4096);
     errdefer in_buf.deinit();
     out_buf = try ArrayList(u8).initCapacity(alloc, 4096);
