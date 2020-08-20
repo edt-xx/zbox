@@ -15,7 +15,7 @@ pub fn debug(comptime template: []const u8, args: anytype) void {
 
     //TODO: possible implementation that uses the library
     // to provide an in-application logging buffer.
-    std.log.debug(.minterm, template, args);
+    std.log.scoped(.zbox).debug(template, args);
 }
 
 pub fn utf8ToWide(utf8: []const u8, chars: []u21) ![]u21 {

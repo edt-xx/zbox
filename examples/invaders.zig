@@ -83,7 +83,7 @@ pub fn main() !void {
             .other => |data| {
                 const eql = std.mem.eql;
                 if (eql(u8, " ", data)) {
-                    std.log.debug(.invaders, "pyoo", .{});
+                    std.log.scoped(.invaders).debug("pyoo", .{});
                     for (bullets) |*bullet| if (bullet.y == 0) {
                         bullet.y = height - 1;
                         bullet.x = ship_x;
