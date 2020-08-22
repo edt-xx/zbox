@@ -43,24 +43,22 @@ pub fn deinit() void {
 /// compare state of input buffer to a buffer tracking display state
 /// and send changes to the terminal.
 pub fn push(buffer: Buffer) (Allocator.Error || ErrorSet.Utf8Encode || ErrorSet.Write)!void {
-    const size_ = Size{ .height = buffer.height, .width = buffer.width };
 
     // resizing the front buffer naively can lead to artifacting
     // if we do not clear the terminal here.
-    if (!std.meta.eql(size_, last_size)) {
+    if ((buffer.width != front.width) or (buffer.height != front.height)) {
         try term.clear();
         front.clear();
     }
-    last_size = size_;
 
-    try front.resize(size_.height, size_.width);
-    var row: usize = 1;
+    try front.resize(buffer.height, buffer.width);
+    var row: usize = 0;
 
     //try term.beginSync();
-    while (row <= size_.height) : (row += 1) {
-        var col: usize = 1;
+    while (row < buffer.height) : (row += 1) {
+        var col: usize = 0;
         var last_touched: usize = 0; // out of bounds, can't match col
-        while (col <= size_.width) : (col += 1) {
+        while (col < buffer.width) : (col += 1) {
 
             // go to the next character if these are the same.
             if (Cell.eql(
@@ -130,26 +128,26 @@ pub const Buffer = struct {
         const Error = error{ InvalidUtf8, InvalidCharacter };
 
         fn writeFn(self: *WriteCursor, bytes: []const u8) Error!usize {
-            if (self.row_num > self.buffer.height) return 0;
+            if (self.row_num >= self.buffer.height) return 0;
 
             var cp_iter = (try std.unicode.Utf8View.init(bytes)).iterator();
             var bytes_written: usize = 0;
             while (cp_iter.nextCodepoint()) |cp| {
-                if (self.col_num > self.buffer.width and self.wrap) {
-                    self.col_num = 1;
+                if (self.col_num >= self.buffer.width and self.wrap) {
+                    self.col_num = 0;
                     self.row_num += 1;
                 }
-                if (self.row_num > self.buffer.height) return bytes_written;
+                if (self.row_num >= self.buffer.height) return bytes_written;
 
                 switch (cp) {
                     //TODO: handle other line endings and return an error when
                     // encountering unpritable or width-breaking codepoints.
                     '\n' => {
-                        self.col_num = 1;
+                        self.col_num = 0;
                         self.row_num += 1;
                     },
                     else => {
-                        if (self.col_num <= self.buffer.width)
+                        if (self.col_num < self.buffer.width)
                             self.buffer.cellRef(self.row_num, self.col_num).* = .{
                                 .char = cp,
                                 .attribs = self.attribs,
@@ -221,10 +219,8 @@ pub const Buffer = struct {
             },
         }
     } {
-        assert(row_num <= self.height);
-        assert(row_num > 0);
-
-        const row_idx = (row_num - 1) * self.width;
+        assert(row_num < self.height);
+        const row_idx = row_num * self.width;
         return self.data[row_idx .. row_idx + self.width];
     }
 
@@ -245,16 +241,15 @@ pub const Buffer = struct {
             },
         }
     } {
-        assert(col_num <= self.width);
-        assert(col_num > 0);
-        return &self.row(row_num)[col_num - 1];
+        assert(col_num < self.width);
+
+        return &self.row(row_num)[col_num];
     }
 
     /// return a copy of the cell at a given offset
     pub fn cell(self: Buffer, row_num: usize, col_num: usize) Cell {
-        assert(col_num <= self.width);
-        assert(col_num > 0);
-        return self.row(row_num)[col_num - 1];
+        assert(col_num < self.width);
+        return self.row(row_num)[col_num];
     }
 
     /// fill a buffer with the given cell
@@ -288,8 +283,8 @@ pub const Buffer = struct {
         const min_height = math.min(old.height, height);
         const min_width = math.min(old.width, width);
 
-        var n: usize = 1;
-        while (n <= min_height) : (n += 1) {
+        var n: usize = 0;
+        while (n < min_height) : (n += 1) {
             mem.copy(Cell, self.row(n), old.row(n)[0..min_width]);
         }
         self.allocator.free(old.data);
@@ -301,22 +296,22 @@ pub const Buffer = struct {
     // by 2. This may change.
     pub fn blit(self: *Buffer, other: Buffer, row_num: isize, col_num: isize) void {
         var self_row_idx = row_num;
-        var other_row_idx: usize = 1;
+        var other_row_idx: usize = 0;
 
-        while (self_row_idx <= self.height and other_row_idx <= other.height) : ({
+        while (self_row_idx < self.height and other_row_idx < other.height) : ({
             self_row_idx += 1;
             other_row_idx += 1;
         }) {
-            if (self_row_idx < 1) continue;
+            if (self_row_idx < 0) continue;
 
             var self_col_idx = col_num;
-            var other_col_idx: usize = 1;
+            var other_col_idx: usize = 0;
 
-            while (self_col_idx <= self.width and other_col_idx <= other.width) : ({
+            while (self_col_idx < self.width and other_col_idx < other.width) : ({
                 self_col_idx += 1;
                 other_col_idx += 1;
             }) {
-                if (self_col_idx < 1) continue;
+                if (self_col_idx < 0) continue;
 
                 self.cellRef(
                     @intCast(usize, self_row_idx),
@@ -333,17 +328,17 @@ pub const Buffer = struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        var row_num: usize = 1;
+        var row_num: usize = 0;
         try writer.print("\n\x1B[4m|", .{});
 
-        while (row_num <= self.height) : (row_num += 1) {
+        while (row_num < self.height) : (row_num += 1) {
             for (self.row(row_num)) |this_cell| {
                 var utf8Seq: [4]u8 = undefined;
                 const len = std.unicode.utf8Encode(this_cell.char, &utf8Seq) catch unreachable;
                 try writer.print("{}|", .{utf8Seq[0..len]});
             }
 
-            if (row_num != self.height)
+            if (row_num != self.height - 1)
                 try writer.print("\n|", .{});
         }
 
@@ -357,7 +352,6 @@ const Size = struct {
 };
 /// represents the last drawn state of the terminal
 var front: Buffer = undefined;
-var last_size = Size{ .height = 0, .width = 0 };
 
 // tests ///////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -369,19 +363,19 @@ test "Buffer.resize()" {
     for (buffer.data) |cell| {
         std.testing.expectEqual(Cell{}, cell);
     }
-    for (buffer.row(5)[0..3]) |*cell| {
+    for (buffer.row(4)[0..3]) |*cell| {
         cell.char = '.';
     }
 
     try buffer.resize(5, 12);
 
     // make sure data is preserved between resizes
-    for (buffer.row(5)[0..3]) |cell| {
+    for (buffer.row(4)[0..3]) |cell| {
         std.testing.expectEqual(@as(u21, '.'), cell.char);
     }
 
     // ensure nothing weird was written to expanded rows
-    for (buffer.row(3)[3..]) |cell| {
+    for (buffer.row(2)[3..]) |cell| {
         std.testing.expectEqual(Cell{}, cell);
     }
 }
@@ -392,17 +386,17 @@ test "buffer.cellRef()" {
     var buffer = try Buffer.init(std.testing.allocator, 1, 1);
     defer buffer.deinit();
 
-    const ref = buffer.cellRef(1, 1);
+    const ref = buffer.cellRef(0, 0);
     ref.* = Cell{ .char = '.' };
 
-    std.testing.expectEqual(@as(u21, '.'), buffer.cell(1, 1).char);
+    std.testing.expectEqual(@as(u21, '.'), buffer.cell(0, 0).char);
 }
 
 test "buffer.cursorAt()" {
     var buffer = try Buffer.init(std.testing.allocator, 10, 10);
     defer buffer.deinit();
 
-    var cursor = buffer.cursorAt(10, 6);
+    var cursor = buffer.cursorAt(9, 5);
     const n = try cursor.writer().write("hello!!!!!\n!!!!");
 
     std.debug.print("{}", .{buffer});
@@ -418,8 +412,8 @@ test "Buffer.blit()" {
     var buffer2 = try Buffer.init(alloc, 5, 5);
     buffer2.fill(.{ .char = '#' });
     std.debug.print("{}", .{buffer2});
-    std.debug.print("blit(-3,7)", .{});
-    buffer1.blit(buffer2, -3, 7);
+    std.debug.print("blit(-2,6)", .{});
+    buffer1.blit(buffer2, -2, 6);
     std.debug.print("{}", .{buffer1});
 }
 
@@ -427,7 +421,7 @@ test "wrappedWrite" {
     var buffer = try Buffer.init(std.testing.allocator, 5, 5);
     defer buffer.deinit();
 
-    var cursor = buffer.wrappedCursorAt(5, 1);
+    var cursor = buffer.wrappedCursorAt(4, 0);
 
     const n = try cursor.writer().write("hello!!!!!");
 

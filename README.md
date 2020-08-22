@@ -107,7 +107,7 @@ buffer.deinit()
 buffer.height: usize
 buffer.width: usize
 
-/// returns a copy of the cell at a given row and column offset, row and column offsets are 1-indexed
+/// returns a copy of the cell at a given row and column offset, row and column offsets are 0-indexed
 buffer.cell(row_num,col_num) Cell
 
 /// returns a pointer to the cell at the given row and column offset
@@ -131,10 +131,9 @@ buffer.fill(cell) void
 buffer.resize(new_height,new_width) !void
 
 // draw other_buffer on top of buffer at the given row and column offsets. Row and column offsets can
-// be zero or negative, and if the other buffer crosses the boundary of the target buffer, out of bounds
+// be negative, and if the other buffer crosses the boundary of the target buffer, out of bounds
 // data will be ignored.
-// note: since buffers are 1-indexed, offset 0 in either dimensions is 1 cell out of bounds, -1 is 2 cells out
-// of bounds, etc. For this reason, buffers might become 0-indexed in the future.
+
 buffer.blit(other_buffer, row_offset, col_offset) void
 ```
 #### Buffer Cursors

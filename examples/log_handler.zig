@@ -1,5 +1,6 @@
 const std = @import("std");
 const options = @import("build_options");
+const term = @import("zbox");
 
 pub fn log(
     comptime message_level: std.log.Level,
@@ -17,7 +18,7 @@ pub fn log(
 }
 
 pub fn panic(msg: []const u8, trace: ?*std.builtin.StackTrace) noreturn {
-    //minterm.deinit();
+    term.deinit();
     //std.debug.print("wtf?", .{});
     log(.emerg, .examples, "{}", .{msg});
     std.builtin.default_panic(msg, trace);

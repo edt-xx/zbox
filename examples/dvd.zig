@@ -29,7 +29,7 @@ pub fn main() !void {
     // load our cool 'image'
     var dvd_logo = try display.Buffer.init(alloc, 9, 13);
     defer dvd_logo.deinit();
-    var logo_cursor = dvd_logo.cursorAt(1, 1);
+    var logo_cursor = dvd_logo.cursorAt(0, 0);
     try logo_cursor.writer().writeAll(dvd_text);
 
     //setup our drawing buffer
@@ -39,9 +39,9 @@ pub fn main() !void {
     defer output.deinit();
 
     // variables for tracking the movement of the logo
-    var x: isize = 1;
+    var x: isize = 0;
     var x_vel: isize = 1;
-    var y: isize = 1;
+    var y: isize = 0;
     var y_vel: isize = 1;
 
     while (true) {
@@ -60,12 +60,12 @@ pub fn main() !void {
         y += y_vel;
 
         // change our velocities if we are running into a wall
-        if ((x_vel < 0 and x <= 1) or
-            (x_vel > 0 and @intCast(isize, dvd_logo.width) + x - 1 >= size.width))
+        if ((x_vel < 0 and x < 0) or
+            (x_vel > 0 and @intCast(isize, dvd_logo.width) + x >= size.width))
             x_vel *= -1;
 
-        if ((y_vel < 0 and y <= 1) or
-            (y_vel > 0 and @intCast(isize, dvd_logo.height) + y - 1 >= size.height))
+        if ((y_vel < 0 and y < 0) or
+            (y_vel > 0 and @intCast(isize, dvd_logo.height) + y >= size.height))
             y_vel *= -1;
 
         std.os.nanosleep(0, 80_000_000);

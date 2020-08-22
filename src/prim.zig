@@ -169,9 +169,7 @@ pub fn cursorShow() ErrorSet.BufWrite!void {
 /// warp the cursor to the specified `row` and `col` in the current scrolling
 /// region.
 pub fn cursorTo(row: usize, col: usize) ErrorSet.BufWrite!void {
-    assert(row > 0);
-    assert(col > 0);
-    try formatSequence("{};{}H", .{ row, col });
+    try formatSequence("{};{}H", .{ row + 1, col + 1 });
 }
 
 /// set up terminal for graphical operation

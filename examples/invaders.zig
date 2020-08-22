@@ -18,10 +18,11 @@ const baddie_block_init = [bb_height][bb_width]u8{
     .{ 1, 0, 1, 0, 1, 0, 1 },
 };
 var baddie_block = baddie_block_init;
-var bb_y: usize = 1;
+var bb_y: usize = 0;
 var bb_countdown: usize = 3;
 
 const Bullet = struct {
+    active: bool = false,
     x: usize = 0,
     y: usize = 0,
 };
@@ -65,18 +66,18 @@ pub fn main() !void {
         try output.resize(size.height, size.width);
 
         if (size.height < height or size.width < width) {
-            const row = std.math.max(1, size.height / 2);
-            var cursor = output.cursorAt(row, 1);
+            const row = std.math.max(0, size.height / 2);
+            var cursor = output.cursorAt(row, 0);
             try cursor.writer().writeAll("display too small; resize.");
             try display.push(output);
             continue;
         }
 
         switch (e) {
-            .left => if (ship_x > 1) {
+            .left => if (ship_x > 0) {
                 ship_x -= 1;
             },
-            .right => if (ship_x < width) {
+            .right => if (ship_x < width - 1) {
                 ship_x += 1;
             },
 
@@ -84,7 +85,8 @@ pub fn main() !void {
                 const eql = std.mem.eql;
                 if (eql(u8, " ", data)) {
                     std.log.scoped(.invaders).debug("pyoo", .{});
-                    for (bullets) |*bullet| if (bullet.y == 0) {
+                    for (bullets) |*bullet| if (!bullet.active) {
+                        bullet.active = true;
                         bullet.y = height - 1;
                         bullet.x = ship_x;
                         break;
@@ -98,12 +100,15 @@ pub fn main() !void {
 
         game_display.clear();
 
-        game_display.cellRef(height, ship_x).char = ship_char;
+        game_display.cellRef(height - 1, ship_x).char = ship_char;
 
         for (bullets) |*bullet| {
-            if (bullet.y > 0) bullet.y -= 1;
-            if ((bullet.y == 1) and (score > 0)) {
-                score -= 1;
+            if (bullet.active) {
+                if (bullet.y > 0) bullet.y -= 1;
+                if (bullet.y == 0) {
+                    bullet.active = false;
+                    if (score > 0) score -= 1;
+                }
             }
         }
         if (bb_countdown == 0) {
@@ -112,28 +117,28 @@ pub fn main() !void {
         } else bb_countdown -= 1;
 
         var baddie_count: usize = 0;
-        for (baddie_block) |baddie_row, row_offset| for (baddie_row) |_, col_offset| {
+        for (baddie_block) |*baddie_row, row_offset| for (baddie_row.*) |*baddie, col_num| {
             const row_num = row_offset + bb_y;
-            const col_num = col_offset + 1;
+            if (row_num >= height) continue;
 
-            if (baddie_block[row_offset][col_offset] > 0) {
-                if (row_num > height) { // baddie reached bottom
-                    if (score >= 5) {
-                        score -= 5;
-                    } else {
-                        score = 0;
-                    }
-
-                    continue;
-                }
+            if (baddie.* > 0) {
                 for (bullets) |*bullet| {
                     if (bullet.x == col_num and
-                        bullet.y <= row_num)
+                        bullet.y <= row_num and
+                        bullet.active)
                     {
                         score += 3;
-                        baddie_block[row_offset][col_offset] -= 1;
+                        baddie.* -= 1;
+                        bullet.active = false;
                         bullet.y = 0;
                         bullet.x = 0;
+                    }
+                    if (row_num == height - 1) { // baddie reached bottom
+                        if (score >= 5) {
+                            score -= 5;
+                        } else {
+                            score = 0;
+                        }
                     }
                 }
 
@@ -145,20 +150,20 @@ pub fn main() !void {
             }
         };
 
-        if ((baddie_count == 0) or (bb_y > height)) {
-            bb_y = 1;
+        if ((baddie_count == 0) or (bb_y >= height)) {
+            bb_y = 0;
             baddie_block = baddie_block_init;
             bullets = [_]Bullet{.{}} ** 4; // clear all the bullets
         }
 
         for (bullets) |bullet| {
-            if (bullet.y > 0)
+            if (bullet.active)
                 game_display.cellRef(bullet.y, bullet.x).* = .{
                     .char = bullet_char,
                     .attribs = .{ .fg_yellow = true },
                 };
         }
-        var score_curs = game_display.cursorAt(1, 4);
+        var score_curs = game_display.cursorAt(0, 3);
         score_curs.attribs = .{ .underline = true };
 
         try score_curs.writer().print("{:0>4}", .{score});
@@ -166,14 +171,15 @@ pub fn main() !void {
         const game_row = if (size.height >= height + 2)
             size.height / 2 - mid_height
         else
-            1;
+            0;
 
         const game_col = if (size.width >= height + 2)
             size.width / 2 - mid_width
         else
-            1;
+            0;
 
         output.blit(game_display, @intCast(isize, game_row), @intCast(isize, game_col));
         try display.push(output);
     }
+    // let the panic handler do this
 }
