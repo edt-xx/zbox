@@ -98,8 +98,7 @@ pub const ErrorSet = struct {
 
 /// write raw text to the terminal output buffer
 pub fn send(seq: []const u8) ErrorSet.BufWrite!void {
-    ensureInit(@returnAddress());
-    try out_buf.writer().writeAll(seq);
+    try state().buffer.out.writer().writeAll(seq);
 }
 
 pub fn sendSGR(sgr: SGR) ErrorSet.BufWrite!void {
@@ -128,8 +127,9 @@ pub fn sendSGR(sgr: SGR) ErrorSet.BufWrite!void {
 
 /// flush the terminal output buffer to the terminal
 pub fn flush() ErrorSet.TtyWrite!void {
-    try out.writeAll(out_buf.items);
-    out_buf.items.len = 0;
+    const self = state();
+    try self.tty.out.writeAll(self.buffer.out.items);
+    self.buffer.out.items.len = 0;
 }
 /// clear the entire terminal
 pub fn clear() ErrorSet.BufWrite!void {
@@ -148,9 +148,8 @@ pub fn endSync() ErrorSet.BufWrite!void {
 /// your cursor to.
 const TermSize = struct { height: usize, width: usize };
 pub fn size() os.UnexpectedError!TermSize {
-    ensureInit(@returnAddress());
     var winsize = mem.zeroes(os.winsize);
-    const err = os.system.ioctl(in.context.handle, os.TIOCGWINSZ, @ptrToInt(&winsize));
+    const err = os.system.ioctl(state().tty.in.context.handle, os.TIOCGWINSZ, @ptrToInt(&winsize));
     if (os.errno(err) == 0)
         return TermSize{ .height = winsize.ws_row, .width = winsize.ws_col };
     return os.unexpectedErrno(err);
@@ -174,24 +173,26 @@ pub fn cursorTo(row: usize, col: usize) ErrorSet.BufWrite!void {
 
 /// set up terminal for graphical operation
 pub fn setup(alloc: *Allocator) ErrorSet.Setup!void {
-    errdefer initialized = false;
-    in_buf = try ArrayList(u8).initCapacity(alloc, 4096);
-    errdefer in_buf.deinit();
-    out_buf = try ArrayList(u8).initCapacity(alloc, 4096);
-    errdefer out_buf.deinit();
+    errdefer termState = null;
+    termState = .{};
+    const self = state();
+
+    self.buffer.in = try ArrayList(u8).initCapacity(alloc, 4096);
+    errdefer self.buffer.in.deinit();
+    self.buffer.out = try ArrayList(u8).initCapacity(alloc, 4096);
+    errdefer self.buffer.out.deinit();
 
     //TODO: check that we are actually dealing with a tty here
     // and either downgrade or error
-    in = (try fs.cwd().openFile("/dev/tty", .{ .read = true, .write = false })).reader();
-    errdefer in.context.close();
-    out = (try fs.cwd().openFile("/dev/tty", .{ .read = false, .write = true })).writer();
-    errdefer out.context.close();
+    self.tty.in = (try fs.cwd().openFile("/dev/tty", .{ .read = true, .write = false })).reader();
+    errdefer self.tty.in.context.close();
+    self.tty.out = (try fs.cwd().openFile("/dev/tty", .{ .read = false, .write = true })).writer();
+    errdefer self.tty.out.context.close();
 
     // store current terminal settings
     // and setup the terminal for graphical IO
-    var termios: os.termios = undefined;
-    original_termios = try os.tcgetattr(in.context.handle);
-    termios = original_termios.?;
+    self.original_termios = try os.tcgetattr(self.tty.in.context.handle);
+    var termios = self.original_termios;
 
     // termios flags for 'raw' mode.
     termios.iflag &= ~@as(
@@ -211,11 +212,8 @@ pub fn setup(alloc: *Allocator) ErrorSet.Setup!void {
     termios.cc[VMIN] = 0; // read can timeout before any data is actually written; async timer
     termios.cc[VTIME] = 1; // 1/10th of a second
 
-    try os.tcsetattr(in.context.handle, .FLUSH, termios);
-    errdefer if (original_termios) |otermios| {
-        os.tcsetattr(in.context.handle, .FLUSH, otermios) catch {};
-    };
-    initialized = true;
+    try os.tcsetattr(self.tty.in.context.handle, .FLUSH, termios);
+    errdefer os.tcsetattr(self.tty.in.context.handle, .FLUSH, self.original_termios) catch {};
     try enterAltScreen();
     errdefer exitAltScreen() catch unreachable;
 
@@ -229,54 +227,57 @@ pub fn setup(alloc: *Allocator) ErrorSet.Setup!void {
 /// generate a terminal/job control signals with certain hotkeys
 /// Ctrl-C, Ctrl-Z, Ctrl-S, etc
 pub fn handleSignalInput() ErrorSet.Termios!void {
-    ensureInit(@returnAddress());
-    var termios = try os.tcgetattr(in.context.handle);
+    const handle = state().tty.in.context.handle;
 
+    var termios = try os.tcgetattr(handle);
     termios.lflag |= os.ISIG;
 
-    try os.tcsetattr(in.context.handle, .FLUSH, termios);
+    try os.tcsetattr(handle, .FLUSH, termios);
 }
 
 /// treat terminal/job control hotkeys as normal input
 /// Ctrl-C, Ctrl-Z, Ctrl-S, etc
 pub fn ignoreSignalInput() ErrorSet.Termios!void {
-    ensureInit(@returnAddress());
-    var termios = try os.tcgetattr(in.context.handle);
+    const handle = state().tty.in.context.handle;
+    var termios = try os.tcgetattr(handle);
 
     termios.lflag &= ~@as(os.tcflag_t, os.ISIG);
 
-    try os.tcsetattr(in.context.handle, .FLUSH, termios);
+    try os.tcsetattr(handle, .FLUSH, termios);
 }
 
 /// restore as much of the terminals's original state as possible
 pub fn teardown() void {
-    if (original_termios) |otermios| {
-        os.tcsetattr(in.context.handle, .FLUSH, otermios) catch {};
-    }
+    const self = state();
 
     exitAltScreen() catch {};
     flush() catch {};
-    initialized = false;
-    in.context.close();
-    out.context.close();
-    in_buf.deinit();
-    out_buf.deinit();
+    os.tcsetattr(self.tty.in.context.handle, .FLUSH, self.original_termios) catch {};
+
+    self.tty.in.context.close();
+    self.tty.out.context.close();
+    self.buffer.in.deinit();
+    self.buffer.out.deinit();
+
+    termState = null;
 }
 
 /// read next message from the tty and parse it. takes
 /// special action for certain events
 pub fn nextEvent() (Allocator.Error || ErrorSet.TtyRead)!?Event {
-    ensureInit(@returnAddress());
     const max_bytes = 4096;
     var total_bytes: usize = 0;
 
+    const self = state();
     while (true) {
-        try in_buf.resize(total_bytes + max_bytes);
-        const bytes_read = try in.context.read(in_buf.items[total_bytes .. max_bytes + total_bytes]);
+        try self.buffer.in.resize(total_bytes + max_bytes);
+        const bytes_read = try self.tty.in.context.read(
+            self.buffer.in.items[total_bytes .. max_bytes + total_bytes],
+        );
         total_bytes += bytes_read;
 
         if (bytes_read < max_bytes) {
-            in_buf.items.len = total_bytes;
+            self.buffer.in.items.len = total_bytes;
             break;
         }
     }
@@ -286,25 +287,28 @@ pub fn nextEvent() (Allocator.Error || ErrorSet.TtyRead)!?Event {
 }
 
 // internals ///////////////////////////////////////////////////////////////////
-var initialized: bool = false;
 
-fn ensureInit(caller: usize) void {
+const TermState = struct {
+    tty: struct {
+        in: InTty = undefined,
+        out: OutTty = undefined,
+    } = .{},
+    buffer: struct {
+        in: ArrayList(u8) = undefined,
+        out: ArrayList(u8) = undefined,
+    } = .{},
+    original_termios: os.termios = undefined,
+};
+var termState: ?TermState = null;
+
+inline fn state() *TermState {
     if (std.debug.runtime_safety) {
-        if (!initialized)
-            std.debug.panicExtra(null, caller, "Tried to use uninitialized terminal", .{});
-    }
+        if (termState) |*self| return self else @panic("terminal is not initialized");
+    } else return &termState.?;
 }
 
-var in: InTty = undefined;
-var out: OutTty = undefined;
-
-var in_buf: ArrayList(u8) = undefined;
-var out_buf: ArrayList(u8) = undefined;
-
-var original_termios: ?os.termios = null;
-
 fn parseEvent() ?Event {
-    const data = in_buf.items;
+    const data = state().buffer.in.items;
     const eql = std.mem.eql;
 
     if (data.len == 0) return Event.tick;
@@ -384,8 +388,8 @@ fn sequence(comptime seq: []const u8) ErrorSet.BufWrite!void {
 }
 
 fn format(comptime template: []const u8, args: anytype) ErrorSet.BufWrite!void {
-    ensureInit(@returnAddress());
-    try out_buf.writer().print(template, args);
+    const self = state();
+    try self.buffer.out.writer().print(template, args);
 }
 fn formatSequence(comptime template: []const u8, args: anytype) ErrorSet.BufWrite!void {
     try format(csi ++ template, args);

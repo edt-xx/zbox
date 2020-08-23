@@ -181,5 +181,4 @@ pub fn main() !void {
         output.blit(game_display, @intCast(isize, game_row), @intCast(isize, game_col));
         try display.push(output);
     }
-    // let the panic handler do this
 }
