@@ -14,12 +14,12 @@ pub fn log(
     const end = logfile.getEndPos() catch return;
     logfile.seekTo(end) catch return;
 
-    writer.print("{}: {}:" ++ format ++ "\n", .{ @tagName(message_level), @tagName(scope) } ++ args) catch return;
+    writer.print("{s}: {s}:" ++ format ++ "\n", .{ @tagName(message_level), @tagName(scope) } ++ args) catch return;
 }
 
 pub fn panic(msg: []const u8, trace: ?*std.builtin.StackTrace) noreturn {
     term.deinit();
     //std.debug.print("wtf?", .{});
-    log(.emerg, .examples, "{}", .{msg});
+    log(.emerg, .examples, "{s}", .{msg});
     std.builtin.default_panic(msg, trace);
 }
