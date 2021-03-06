@@ -9,7 +9,7 @@ pub fn build(b: *Builder) void {
     const invaders = b.addExecutable("invaders", "examples/invaders.zig");
     const tests = b.addTest("src/box.zig");
 
-    const example_log = b.fmt("{}/{}/{}", .{ b.build_root, b.cache_root, "example.log" });
+    const example_log = b.fmt("{s}/{s}/{s}", .{ b.build_root, b.cache_root, "example.log" });
     dvd.setTarget(target);
     dvd.setBuildMode(mode);
     dvd.addPackagePath("zbox", "src/box.zig");
