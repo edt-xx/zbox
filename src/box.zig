@@ -57,7 +57,7 @@ pub fn push(buffer: Buffer) (Allocator.Error || ErrorSet.Utf8Encode || ErrorSet.
     //try term.beginSync();
     while (row < buffer.height) : (row += 1) {
         var col: usize = 0;
-        var last_touched: usize = 0; // out of bounds, can't match col
+        var last_touched: usize = 999999; // out of bounds, can't match col
         while (col < buffer.width) : (col += 1) {
 
             // go to the next character if these are the same.
@@ -71,7 +71,7 @@ pub fn push(buffer: Buffer) (Allocator.Error || ErrorSet.Utf8Encode || ErrorSet.
             if (last_touched != col)
                 try term.cursorTo(row, col);
 
-            last_touched = col;
+            last_touched = col+1;
 
             const cell = buffer.cell(row, col);
             front.cellRef(row, col).* = cell;
