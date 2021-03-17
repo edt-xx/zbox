@@ -225,7 +225,7 @@ pub fn setup(alloc: *Allocator) ErrorSet.Setup!void {
 }
 
 // set terminal input maximum wait time in 1/10 seconds unit, zero is no wait
-pub fn setTimeout(tenths:usize) ErrorSet.Termios!void {
+pub fn setTimeout(tenths:u8) ErrorSet.Termios!void {
     const handle = state().tty.in.context.handle; 
 
     var termios = try os.tcgetattr(handle);
