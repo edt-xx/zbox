@@ -57,7 +57,7 @@ pub fn push(buffer: Buffer) (Allocator.Error || ErrorSet.Utf8Encode || ErrorSet.
     //try term.beginSync();
     while (row < buffer.height) : (row += 1) {
         var col: usize = 0;
-        var last_touched: usize = buffer.width; 	// out of bounds, can't match col
+        var last_touched: usize = buffer.width;       // out of bounds, can't match col
         while (col < buffer.width) : (col += 1) {
 
             // go to the next character if these are the same.
