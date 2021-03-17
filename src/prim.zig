@@ -225,6 +225,7 @@ pub fn setup(alloc: *Allocator) ErrorSet.Setup!void {
 }
 
 pub fn setTimeout(tenths:usize) ErrorSet.Termios!void {
+    const handle = state().tty.in.context.handle; 
 
     var termios = try os.tcgetattr(handle);
     termios.cc[VTIME] = tenths;
