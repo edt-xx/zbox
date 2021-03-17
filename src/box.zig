@@ -12,6 +12,7 @@ pub const handleSignalInput = term.handleSignalInput;
 pub const cursorShow = term.cursorShow;
 pub const cursorHide = term.cursorHide;
 pub const nextEvent = term.nextEvent;
+pub const setTimeout = term.setTimeout;
 pub const clear = term.clear;
 pub const Event = term.Event;
 
