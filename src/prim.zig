@@ -224,6 +224,13 @@ pub fn setup(alloc: *Allocator) ErrorSet.Setup!void {
     try flush();
 }
 
+pub fn setTimeout(tenths:usize) ErrorSet.Termios!void {
+
+    var termios = try os.tcgetattr(handle);
+    termios.cc[VTIME] = tenths;
+    try os.tcsetattr(handle, .FLUSH, termios);
+}
+
 /// generate a terminal/job control signals with certain hotkeys
 /// Ctrl-C, Ctrl-Z, Ctrl-S, etc
 pub fn handleSignalInput() ErrorSet.Termios!void {
