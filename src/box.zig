@@ -329,6 +329,8 @@ pub const Buffer = struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
+        _ = fmt;
+        _ = options;
         var row_num: usize = 0;
         try writer.print("\n\x1B[4m|", .{});
 
