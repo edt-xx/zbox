@@ -1,3 +1,8 @@
+//! the primitive terminal module is mainly responsible for providing a simple
+//! and portable interface to pseudo terminal IO and control primitives to
+//! higher level modules. You probably shouldn't be using this directly from
+//! application code.
+
 const std = @import("std");
 const fs = std.fs;
 const os = std.os;
@@ -10,11 +15,6 @@ const ArrayList = std.ArrayList;
 const Allocator = mem.Allocator;
 
 usingnamespace @import("util.zig");
-
-//! the primitive terminal module is mainly responsible for providing a simple
-//! and portable interface to pseudo terminal IO and control primitives to
-//! higher level modules. You probably shouldn't be using this directly from
-//! application code.
 
 /// Input events
 pub const Event = union(enum) {
@@ -148,11 +148,11 @@ pub fn endSync() ErrorSet.BufWrite!void {
 /// your cursor to.
 const TermSize = struct { height: usize, width: usize };
 pub fn size() os.UnexpectedError!TermSize {
-    var winsize = mem.zeroes(os.winsize);
-    const err = os.system.ioctl(state().tty.in.context.handle, os.TIOCGWINSZ, @ptrToInt(&winsize));
-    if (os.errno(err) == 0)
+    var winsize = mem.zeroes(os.system.winsize);
+    const err = os.system.ioctl(state().tty.in.context.handle, os.system.T.IOCGWINSZ, @ptrToInt(&winsize));
+    if (os.errno(err) == .SUCCESS)
         return TermSize{ .height = winsize.ws_row, .width = winsize.ws_col };
-    return os.unexpectedErrno(err);
+    return os.unexpectedErrno(os.errno(err));
 }
 
 /// Hides cursor if visible
@@ -196,18 +196,18 @@ pub fn setup(alloc: *Allocator) ErrorSet.Setup!void {
 
     // termios flags for 'raw' mode.
     termios.iflag &= ~@as(
-        os.tcflag_t,
-        os.IGNBRK | os.BRKINT | os.PARMRK | os.ISTRIP |
-        os.INLCR | os.IGNCR | os.ICRNL | os.IXON,
+        os.system.tcflag_t,
+        os.system.IGNBRK | os.system.BRKINT | os.system.PARMRK | os.system.ISTRIP |
+        os.system.INLCR | os.system.IGNCR | os.system.ICRNL | os.system.IXON,
     );
     termios.lflag &= ~@as(
-        os.tcflag_t,
-        os.ICANON | os.ECHO | os.ECHONL | os.IEXTEN | os.ISIG,
+        os.system.tcflag_t,
+        os.system.ICANON | os.system.ECHO | os.system.ECHONL | os.system.IEXTEN | os.system.ISIG,
     );
-    termios.oflag &= ~@as(os.tcflag_t, os.OPOST);
-    termios.cflag &= ~@as(os.tcflag_t, os.CSIZE | os.PARENB);
+    termios.oflag &= ~@as(os.system.tcflag_t, os.system.OPOST);
+    termios.cflag &= ~@as(os.system.tcflag_t, os.system.CSIZE | os.system.PARENB);
 
-    termios.cflag |= os.CS8;
+    termios.cflag |= os.system.CS8;
 
     termios.cc[VMIN] = 0; // read can timeout before any data is actually written; async timer
     termios.cc[VTIME] = 1; // 1/10th of a second
@@ -239,7 +239,7 @@ pub fn handleSignalInput() ErrorSet.Termios!void {
     const handle = state().tty.in.context.handle;
 
     var termios = try os.tcgetattr(handle);
-    termios.lflag |= os.ISIG;
+    termios.lflag |= os.system.ISIG;
 
     try os.tcsetattr(handle, .FLUSH, termios);
 }
@@ -250,7 +250,7 @@ pub fn ignoreSignalInput() ErrorSet.Termios!void {
     const handle = state().tty.in.context.handle;
     var termios = try os.tcgetattr(handle);
 
-    termios.lflag &= ~@as(os.tcflag_t, os.ISIG);
+    termios.lflag &= ~@as(os.system.tcflag_t, os.system.ISIG);
 
     try os.tcsetattr(handle, .FLUSH, termios);
 }
@@ -291,7 +291,7 @@ pub fn nextEvent() (Allocator.Error || ErrorSet.TtyRead)!?Event {
         }
     }
     const event = parseEvent();
-    debug("event: {}", .{event});
+    //std.log.debug("event: {}", .{event});
     return event;
 }
 
@@ -306,7 +306,7 @@ const TermState = struct {
         in: ArrayList(u8) = undefined,
         out: ArrayList(u8) = undefined,
     } = .{},
-    original_termios: os.termios = undefined,
+    original_termios: os.system.termios = undefined,
 };
 var termState: ?TermState = null;
 
