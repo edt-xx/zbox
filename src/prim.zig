@@ -184,9 +184,9 @@ pub fn setup(alloc: Allocator) ErrorSet.Setup!void {
 
     //TODO: check that we are actually dealing with a tty here
     // and either downgrade or error
-    self.tty.in = (try fs.cwd().openFile("/dev/tty", .{ .read = true, .write = false })).reader();
+    self.tty.in = (try fs.cwd().openFile("/dev/tty", .{ .mode = .read_only })).reader();
     errdefer self.tty.in.context.close();
-    self.tty.out = (try fs.cwd().openFile("/dev/tty", .{ .read = false, .write = true })).writer();
+    self.tty.out = (try fs.cwd().openFile("/dev/tty", .{ .mode = .write_only })).writer();
     errdefer self.tty.out.context.close();
 
     // store current terminal settings
