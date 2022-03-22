@@ -20,6 +20,6 @@ pub fn log(
 pub fn panic(msg: []const u8, trace: ?*std.builtin.StackTrace) noreturn {
     term.deinit();
     //std.debug.print("wtf?", .{});
-    log(.emerg, .examples, "{s}", .{msg});
+    log(.err, .examples, "{s}", .{msg});
     std.builtin.default_panic(msg, trace);
 }
