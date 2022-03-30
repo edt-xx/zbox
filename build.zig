@@ -22,6 +22,7 @@ pub fn build(b: *Builder) void {
     invaders.setTarget(target);
     invaders.setBuildMode(mode);
     invaders.addPackagePath("zbox", "src/box.zig");
+    //invaders.linkLibC();
     //invaders.addBuildOption([]const u8, "log_path", example_log);
     invaders.install();
 

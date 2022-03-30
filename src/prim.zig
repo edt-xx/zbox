@@ -4,11 +4,25 @@
 //! application code.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const fs = std.fs;
 const os = std.os;
 const io = std.io;
 const mem = std.mem;
 const fmt = std.fmt;
+
+const system = 
+    if (builtin.link_libc)
+        @cImport({
+            @cInclude("termios.h");
+            @cInclude("sys/ioctl.h");
+        })
+    else
+        struct {
+            usingnamespace os.system;
+            const TIOCGWINSZ = os.system.T.IOCGWINSZ;
+        };
+
 
 const assert = std.debug.assert;
 const ArrayList = std.ArrayList;
@@ -148,8 +162,8 @@ pub fn endSync() ErrorSet.BufWrite!void {
 /// your cursor to.
 const TermSize = struct { height: usize, width: usize };
 pub fn size() os.UnexpectedError!TermSize {
-    var winsize = mem.zeroes(os.system.winsize);
-    const err = os.system.ioctl(state().tty.in.context.handle, os.system.T.IOCGWINSZ, @ptrToInt(&winsize));
+    var winsize = mem.zeroes(system.winsize);
+    const err = os.system.ioctl(state().tty.in.context.handle, system.TIOCGWINSZ, @ptrToInt(&winsize));
     if (os.errno(err) == .SUCCESS)
         return TermSize{ .height = winsize.ws_row, .width = winsize.ws_col };
     return os.unexpectedErrno(os.errno(err));
@@ -197,17 +211,17 @@ pub fn setup(alloc: Allocator) ErrorSet.Setup!void {
     // termios flags for 'raw' mode.
     termios.iflag &= ~@as(
         os.system.tcflag_t,
-        os.system.IGNBRK | os.system.BRKINT | os.system.PARMRK | os.system.ISTRIP |
-        os.system.INLCR | os.system.IGNCR | os.system.ICRNL | os.system.IXON,
+        system.IGNBRK | system.BRKINT | system.PARMRK | system.ISTRIP |
+        system.INLCR | system.IGNCR | system.ICRNL | system.IXON,
     );
     termios.lflag &= ~@as(
         os.system.tcflag_t,
-        os.system.ICANON | os.system.ECHO | os.system.ECHONL | os.system.IEXTEN | os.system.ISIG,
+        system.ICANON | system.ECHO | system.ECHONL | system.IEXTEN | system.ISIG,
     );
-    termios.oflag &= ~@as(os.system.tcflag_t, os.system.OPOST);
-    termios.cflag &= ~@as(os.system.tcflag_t, os.system.CSIZE | os.system.PARENB);
+    termios.oflag &= ~@as(os.system.tcflag_t, system.OPOST);
+    termios.cflag &= ~@as(os.system.tcflag_t, system.CSIZE | system.PARENB);
 
-    termios.cflag |= os.system.CS8;
+    termios.cflag |= system.CS8;
 
     termios.cc[VMIN] = 0; // read can timeout before any data is actually written; async timer
     termios.cc[VTIME] = 1; // 1/10th of a second
@@ -239,7 +253,7 @@ pub fn handleSignalInput() ErrorSet.Termios!void {
     const handle = state().tty.in.context.handle;
 
     var termios = try os.tcgetattr(handle);
-    termios.lflag |= os.system.ISIG;
+    termios.lflag |= system.ISIG;
 
     try os.tcsetattr(handle, .FLUSH, termios);
 }
@@ -250,7 +264,7 @@ pub fn ignoreSignalInput() ErrorSet.Termios!void {
     const handle = state().tty.in.context.handle;
     var termios = try os.tcgetattr(handle);
 
-    termios.lflag &= ~@as(os.system.tcflag_t, os.system.ISIG);
+    termios.lflag &= ~@as(os.system.tcflag_t, system.ISIG);
 
     try os.tcsetattr(handle, .FLUSH, termios);
 }
