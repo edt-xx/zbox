@@ -4,6 +4,7 @@
 //! application code.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const fs = std.fs;
 const os = std.os;
 const io = std.io;
@@ -11,15 +12,16 @@ const mem = std.mem;
 const fmt = std.fmt;
 
 const system = 
-    if (@hasDecl(os.system, "ISIG")) 
+    if (builtin.link_libc)
+        @cImport({
+            @cInclude("termios.h");
+            @cInclude("sys/ioctl.h");
+        })
+    else
         struct {
             usingnamespace os.system;
             const TIOCGWINSZ = os.system.T.IOCGWINSZ;
-        }
-    else @cImport({
-        @cInclude("termios.h");
-        @cInclude("sys/ioctl.h");
-    });
+        };
 
 
 const assert = std.debug.assert;
